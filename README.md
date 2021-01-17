@@ -3,7 +3,7 @@ The goal of this project is to use UNIX sockets to create a server and client pr
 
 ## Usage
 1. Compile the respective programs. For e.g., using gcc:   
-```gcc deliver.c -lpthread -o deliver```  
+```gcc deliver.c -lpthread -o deliver``` and ```gcc server.c -lpthread -o server``` 
 2. Get the current local IP . For e.g., using curl:  
 ```curl ifconfig.me```
 3. Run the compiled ```deliver``` and ```server``` programs on the same network  
@@ -16,3 +16,5 @@ Use the following syntax to run the programs:
 * Uses a packet format and acknowledgement implementation
 * Packets are sent as ```total_fragments:current_fragment:total_size:filename:filedata```
 * The file is fragmented if above the max fragment size and sent and split and reassembled at the server accordingly
+* Client program reads data from the specified file and sends it to the server using the chosen UDP socket
+* Server program reads the file name, creates a corresponding file stream and reads data from the packets to write to the file stream

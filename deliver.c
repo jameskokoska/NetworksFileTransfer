@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <math.h>
 #include <time.h>
+#include <poll.h>
+#include <sys/time.h>
 
 #define BACKLOG 10
 #define PACKETSIZE 1000
@@ -53,17 +55,16 @@ int main(int argc, char *argv[]) {
    // send command
    char command[300];
    char fileName[300];
-   printf("Enter command and file name: ");
+   printf("\033[1;36mEnter command and file name (ftp file.jpg):\033[0m ");
    scanf("%s %s",command, fileName);
    printf("%s %s\n", command, fileName);
 
-   clock_t start;
    struct packet packetSend;
    if(strcmp(&command, "ftp") == 0) {
       FILE *fp;
       fp = fopen(fileName,"rb");
       if(fp!=NULL) {
-         char buf[PACKETSIZE] = {};
+         char buf[PACKETSIZE] = {0};
          int count = PACKETSIZE;
          int fileSize = 0;
          int fragNumber = 0;
@@ -94,8 +95,6 @@ int main(int argc, char *argv[]) {
             memset(packetSend.filedata, 0, sizeof(packetSend.filedata));
             count = fread(packetSend.filedata,sizeof(char), PACKETSIZE, fp);
 
-            printf("\nPackage %d\n",fragNumber);
-            
             packetSend.frag_no = fragNumber;
             packetSend.size = count;
             packetSend.filename = fileName;
@@ -108,48 +107,71 @@ int main(int argc, char *argv[]) {
             sprintf(stringFragNo, "%d", packetSend.frag_no);
             sprintf(stringSize, "%d", packetSend.size);
 
-            char packet[1200];
+            char packet[1000+30];
             memset(packet, 0, sizeof(packet));
             //sprintf(packet, "%s:%s:%s:%s:%s", stringTotalFrag, stringFragNo, stringSize, packetSend.filename, packetSend.filedata);
             int hlen = snprintf(packet, sizeof(packet), "%s:%s:%s:%s:", stringTotalFrag, stringFragNo, stringSize, packetSend.filename);
+            printf("Sending: %s[data]\n",&packet);
             memcpy(packet + hlen, packetSend.filedata, sizeof(packetSend.filedata));
-
+            
            
-            printf("Sending: %s\n",&packet);
-            start = clock();
-            send(sockResp, &packet, hlen + sizeof(packetSend.filedata), 0);
 
+            struct pollfd fd;
+            int ret = 0;
+            char buffer[100];
+            struct timeval  tvbefore, tvafter, tvresult;
+            
+            while (ret== 0 || ret== -1) {
+               
+               gettimeofday(&tvbefore, NULL);
+               send(sockResp, &packet, hlen + sizeof(packetSend.filedata), 0);
+               fd.fd = sockResp; // socket handler 
+               fd.events = POLLIN;
+               ret = poll(&fd, 1, 1); // 1 ms for timeout TRY SELECT()
+               switch (ret) {
+                  case -1:
+                     // Error
+                     break;
+                  case 0:
+                     // Timeout 
+                     printf("\033[1;31m");
+                     printf("TIMEOUT, RESENDING: %s\n", stringFragNo);
+                     printf("\033[0m");
+                     recv(sockResp,buffer,sizeof(buffer), 0); // get your data
+                     
+                     break;
+                  default:
+                     recv(sockResp,buffer,sizeof(buffer), 0); // get your data
+                     gettimeofday(&tvafter, NULL);
+                     timersub(&tvafter, &tvbefore, &tvresult);
+                     printf("RTT is: %ld.%.6ld seconds\n", (long int) tvresult.tv_sec, (long int) tvresult.tv_usec);
+                     printf("Recieved: %s\n",buffer);
+                     break;
+               }
+               if(atoi(buffer)==atoi(stringTotalFrag)) {
+                  printf("\033[1;35m");
+                  printf("FILE TRANSFER COMPLETE\n");
+                  printf("\033[0m");
+                  break;
+               }
+            }
          }
-
       fclose(fp);
-
-         
-      } else {
+      } 
+      
+      else {
          printf("File not found\n");
          close(sockResp);
          return 0;
       }
-   } else {
+   } 
+   
+   else {
       printf("Invalid command, expecting: ftp <fileName>\n");
       return 0;
    }
-
-   //recieve from client
-   int numRecv = 0;
-
-   while (numRecv != packetSend.total_frag) {
-      char buffer[100]; 
-      recv(sockResp, buffer, sizeof(buffer), 0);
-      printf("Recieved: %s\n",buffer);
-      numRecv++;
-   }
-   clock_t end = clock();
-   float seconds = (float)(end - start) / CLOCKS_PER_SEC;
-   printf("The RTT is: %f ms\n", seconds*1000);
-
    //close the socket
    close(sockResp);
-   
    return 0;
 }  
 

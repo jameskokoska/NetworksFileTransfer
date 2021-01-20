@@ -4,6 +4,7 @@
 #include <netdb.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 #define PACKETSIZE 1000
 #define BACKLOG 10
@@ -39,7 +40,7 @@ int main(int argc, char const *argv[]) {
 
    printf("Server started at: 128.100.13.233\n");
    //receive data from client
-   char buffer[PACKETSIZE+100] = {0};
+   char buffer[PACKETSIZE+25] = {0};
    struct sockaddr_in clientAddr;
    int clientAddrSize = sizeof(clientAddr);
 
@@ -49,22 +50,26 @@ int main(int argc, char const *argv[]) {
    int n = recvfrom(sockResp, buffer, sizeof(buffer), 0, (struct sockaddr*)&clientAddr,&clientAddrSize);
    buffer[n] = '\0';
    int ack = 1;
-   printf("Recieved: %s\n",buffer);
-   
    char fileName[PACKETSIZE] = {0};
-   char currentData[PACKETSIZE+20] = {0};
+   char currentData[PACKETSIZE+25] = {0};
    int colonCount = 0;
    char currentDataSize[5] = {0};
+   char currentPacketNum[5] = {0};
 
    int fileNameCount = 0;
    int fileDataCount = 0;
    int fileDataSizeCount = 0;
+   int filePacketNumCount = 0;
    int charCount = 0;
    for (int i = 0; i < sizeof(buffer); i++) {
       if(buffer[i] == ':' && colonCount< 4) {
          colonCount++;
          charCount++;
          continue;
+      }
+      if(colonCount == 1) {
+         currentPacketNum[filePacketNumCount] = buffer[i];
+         filePacketNumCount++;
       }
       if(colonCount == 2) {
          currentDataSize[fileDataSizeCount] = buffer[i];
@@ -82,6 +87,8 @@ int main(int argc, char const *argv[]) {
          charCount++;
       }
    }
+
+   printf("Recieved: %d\n",atoi(currentPacketNum));
 
    FILE *fptr;
    char newFile[PACKETSIZE] = {0};
@@ -104,27 +111,36 @@ int main(int argc, char const *argv[]) {
    }
    
    int totalFrags = atoi(frags);
-   
+
    while(ack != totalFrags) {
+      char buffer[PACKETSIZE+25] = {0};
+      struct sockaddr_in clientAddr;
+      int clientAddrSize = sizeof(clientAddr);
+
       int n = recvfrom(sockResp, buffer, sizeof(buffer), 0, (struct sockaddr*)&clientAddr,&clientAddrSize);
+      usleep(925); // delay added to show timeouts, 0.95 ms
       buffer[n] = '\0';
-      ack++;
-      printf("Recieved: %s\n",buffer);
-      
+
       char fileName[PACKETSIZE] = {0};
-      char currentData[PACKETSIZE+100] = {0};
+      char currentData[PACKETSIZE+25] = {0};
       int colonCount = 0;
       char currentDataSize[5] = {0};
+      char currentPacketNum[5] = {0};
 
       int fileNameCount = 0;
       int fileDataCount = 0;
       int fileDataSizeCount = 0;
+      int filePacketNumCount = 0;
       int charCount = 0;
       for (int i = 0; i < sizeof(buffer); i++) {
          if(buffer[i] == ':' && colonCount< 4) {
             colonCount++;
             charCount++;
             continue;
+         }
+         if(colonCount == 1) {
+            currentPacketNum[filePacketNumCount] = buffer[i];
+            filePacketNumCount++;
          }
          if(colonCount == 2) {
             currentDataSize[fileDataSizeCount] = buffer[i];
@@ -142,11 +158,18 @@ int main(int argc, char const *argv[]) {
             charCount++;
          }
       }
-      fwrite(currentData, 1, atoi(currentDataSize),fptr);
+      printf("Recieved: %d\n",atoi(currentPacketNum));
+
+      
+      if (ack+1 == atoi(currentPacketNum)) {
+         fwrite(currentData, 1, atoi(currentDataSize),fptr);
+         ack++;
+      }
+
       //send ack
       char stringAck[PACKETSIZE];
       sprintf(stringAck,"%d",ack);
-      printf("Sending ACK: %s\n",stringAck);
+      printf("Sending ACK: %s\n\n",stringAck);
       sendto(sockResp, stringAck, 1024, 0, (struct sockaddr*)&clientAddr, clientAddrSize); 
    }
    fclose(fptr);
